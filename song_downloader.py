@@ -185,6 +185,55 @@ def split_folder(folder_arg):
     return [p.strip() for p in parts if p.strip()]
 
 
+def build_folder_counts(supported_links):
+    """
+    Build per-folder song counts for the GUI tree.
+
+    Returns (own_counts, total_counts) where keys are folder-path tuples:
+      own_counts[path]   = songs sitting exactly in that folder
+      total_counts[path] = songs in that folder or any nested sub-folder
+    """
+    from collections import defaultdict
+
+    own = defaultdict(int)
+    for link in supported_links:
+        own[tuple(link["folders"])] += 1
+
+    total = defaultdict(int)
+    for path, n in own.items():
+        # Empty tuple = top-level; always count toward root as well.
+        total[()] += n
+        for i in range(1, len(path) + 1):
+            total[path[:i]] += n
+    return dict(own), dict(total)
+
+
+def links_under_folders(supported_links, selected_paths):
+    """
+    Pick songs that live under any of the selected folder paths (prefix match).
+    selected_paths: iterable of folder-path tuples, e.g. (("Songs",), ("Songs", "Songs Cont VII"))
+    De-duplicates by URL. Empty tuple () means "everything".
+    """
+    selected = [tuple(p) for p in selected_paths if p is not None]
+    if not selected:
+        return []
+
+    chosen = []
+    seen = set()
+    for link in supported_links:
+        folders = tuple(link["folders"])
+        matched = False
+        for sel in selected:
+            if len(sel) == 0 or folders[: len(sel)] == sel:
+                matched = True
+                break
+        if not matched or link["url"] in seen:
+            continue
+        seen.add(link["url"])
+        chosen.append(link)
+    return chosen
+
+
 # ----------------------------------------------------------------------------
 # 3. FFmpeg / Deno discovery (works even before a shell restart)
 # ----------------------------------------------------------------------------
@@ -257,7 +306,24 @@ def base_ydl_opts(out_dir, ffmpeg_dir, cookies_browser, cookies_file, archive_pa
 # ----------------------------------------------------------------------------
 # 4. Downloading
 # ----------------------------------------------------------------------------
-def download_all(items, out_dir, ffmpeg_dir, failures_path, cookies_browser, cookies_file):
+def download_all(
+    items,
+    out_dir,
+    ffmpeg_dir,
+    failures_path,
+    cookies_browser,
+    cookies_file,
+    on_progress=None,
+    should_cancel=None,
+):
+    """
+    Download items as MP3s.
+
+    on_progress(i, total, title, status, detail="")
+        status is one of: "start", "saved", "skipped", "failed", "cancelled"
+    should_cancel() -> bool
+        polled between items; if True, stop early.
+    """
     os.makedirs(out_dir, exist_ok=True)
     archive_path = os.path.join(out_dir, ".downloaded.txt")  # lets you re-run to resume
 
@@ -278,28 +344,46 @@ def download_all(items, out_dir, ffmpeg_dir, failures_path, cookies_browser, coo
     bot_hits = 0
     total = len(items)
 
+    def emit(i, title, status, detail=""):
+        if on_progress:
+            on_progress(i, total, title, status, detail)
+        elif status == "start":
+            print(f"[{i}/{total}] {title}")
+        elif status == "saved":
+            print("        saved")
+        elif status == "skipped":
+            print("        already have it (skipped)")
+        elif status == "failed":
+            print(f"        FAILED: {detail}")
+        elif status == "cancelled":
+            print("        cancelled")
+
     # Fresh failures log each run.
     with open(failures_path, "w", encoding="utf-8") as failog:
         failog.write("# Links that could not be downloaded (title -- URL)\n")
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         for i, item in enumerate(items, 1):
+            if should_cancel and should_cancel():
+                emit(i, item.get("title") or item["url"], "cancelled")
+                break
+
             url = item["url"]
             title = item["title"] or url
-            print(f"[{i}/{total}] {title}")
+            emit(i, title, "start")
             state["downloaded"] = False
             try:
                 ydl.download([url])
                 ok += 1
                 if state["downloaded"]:
-                    print("        saved")
+                    emit(i, title, "saved")
                 else:
                     skipped += 1
-                    print("        already have it (skipped)")
+                    emit(i, title, "skipped")
             except Exception as exc:  # noqa: BLE001 - keep going no matter what
                 failed += 1
                 reason = str(exc).splitlines()[0] if str(exc) else exc.__class__.__name__
-                print(f"        FAILED: {reason}")
+                emit(i, title, "failed", reason)
                 if is_bot_error(reason):
                     bot_hits += 1
                 with open(failures_path, "a", encoding="utf-8") as failog:

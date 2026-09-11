@@ -36,9 +36,21 @@ python song_downloader.py --cookies-from-browser chrome
 
 ## Usage
 
+### GUI (recommended)
+
+```powershell
+python song_gui.py
+```
+
+1. Load your bookmarks HTML (auto-loads `bookmarks.html` if it’s in the same folder).
+2. Tick the folders you want in the tree.
+3. Click **Download selected**.
+
+### Command line
+
 Put your bookmarks export next to the script (or pass a path). Default file name: `bookmarks.html`.
 
-### Interactive (easiest)
+#### Interactive
 
 ```powershell
 python song_downloader.py
@@ -46,7 +58,7 @@ python song_downloader.py
 
 It asks for the bookmarks file, folder, and output directory.
 
-### Common commands
+#### Common commands
 
 ```powershell
 # See every folder and how many songs it has
@@ -62,7 +74,7 @@ python song_downloader.py --folder Songs
 python song_downloader.py --bookmarks bookmarks.html --folder "Songs/Songs Cont VII" --out downloads
 ```
 
-Folder names match your bookmark tree. In this export they’re like `Songs Cont VII`, not `Songs VII`. Use `--list` if you’re unsure.
+Folder names match your bookmark tree. In this export they’re like `Songs Cont VII`, not `Songs VII`. Use `--list` or the GUI tree if you’re unsure.
 
 ## What you get
 
